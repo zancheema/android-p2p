@@ -1,20 +1,14 @@
 package com.zancheema.android.p2ptest;
 
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
-
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.BroadcastReceiver;
-import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
-import android.net.Uri;
+import android.net.wifi.p2p.WifiP2pConfig;
+import android.net.wifi.p2p.WifiP2pDevice;
 import android.net.wifi.p2p.WifiP2pManager;
 import android.net.wifi.p2p.WifiP2pManager.Channel;
 import android.os.Bundle;
@@ -22,13 +16,18 @@ import android.provider.MediaStore;
 import android.util.Log;
 import android.widget.Button;
 import android.widget.TextView;
+import android.widget.Toast;
 
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
-import java.net.Socket;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+
+import java.net.InetAddress;
+
+import static android.net.wifi.p2p.WifiP2pManager.BUSY;
+import static android.net.wifi.p2p.WifiP2pManager.ERROR;
+import static android.net.wifi.p2p.WifiP2pManager.P2P_UNSUPPORTED;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -187,4 +186,64 @@ public class MainActivity extends AppCompatActivity {
         }
         super.onDestroy();
     }
+
+    private boolean connected = false;
+
+    WifiP2pManager.ConnectionInfoListener connectionInfoListener = info -> {
+        InetAddress address = info.groupOwnerAddress;
+        if (address != null) {
+            host = address.getHostAddress();
+
+            if (info.groupFormed && info.isGroupOwner) {
+                tvStatus.setText("Host");
+            } else if (info.groupFormed) {
+                tvStatus.setText("Client");
+            }
+        }
+    };
+
+    @SuppressLint("MissingPermission")
+    WifiP2pManager.PeerListListener myPeerListListener = peers -> {
+        if (connected) return;
+        Log.d(TAG, "No. of peers: " + peers.getDeviceList().size());
+
+        for (WifiP2pDevice device : peers.getDeviceList()) {
+            WifiP2pConfig config = new WifiP2pConfig();
+            config.deviceAddress = device.deviceAddress;
+            connected = true;
+            manager.connect(channel, config, new WifiP2pManager.ActionListener() {
+
+                @Override
+                public void onSuccess() {
+                    Toast.makeText(MainActivity.this, "Connected to " + device.deviceName, Toast.LENGTH_SHORT).show();
+                    Log.d(TAG, "Connected to " + device.deviceName);
+                    connected = true;
+                }
+
+                @Override
+                public void onFailure(int reason) {
+                    String cause;
+                    switch (reason) {
+                        case P2P_UNSUPPORTED:
+                            cause = "Unsupported";
+                            break;
+                        case ERROR:
+                            cause = "Error";
+                            break;
+                        case BUSY:
+                            cause = "Busy";
+                            break;
+                        default:
+                            cause = "Unknown";
+                            break;
+                    }
+                    Toast.makeText(
+                            MainActivity.this,
+                            "Failed connecting to device: " + cause,
+                            Toast.LENGTH_SHORT
+                    ).show();
+                }
+            });
+        }
+    };
 }

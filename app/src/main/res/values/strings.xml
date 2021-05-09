@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">P2P Test</string>
+    <string name="picture_title">P2P Test</string>
+    <string name="picture_description">P2p test images</string>
 </resources>

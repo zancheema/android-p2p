@@ -1,5 +1,7 @@
 package com.zancheema.android.p2ptest;
 
+import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
@@ -50,8 +52,8 @@ public class FileServerAsyncTask extends AsyncTask<Void, Void, String> {
              */
 
 
-            final File f = new File(context.getExternalFilesDir(Environment.DIRECTORY_PICTURES) + "/"
-                    + "/wifip2pshared-" + System.currentTimeMillis()
+            final File f = new File(Environment.getExternalStorageDirectory() + "/"
+                    + "P2PTest" + "/wifip2pshared-" + System.currentTimeMillis()
                     + ".jpg");
 
             File dirs = new File(f.getParent());
@@ -60,12 +62,26 @@ public class FileServerAsyncTask extends AsyncTask<Void, Void, String> {
             f.createNewFile();
             InputStream inputstream = client.getInputStream();
             copyFile(inputstream, new FileOutputStream(f));
+            addMetadata(f, context);
             serverSocket.close();
             return f.getAbsolutePath();
         } catch (IOException e) {
             Log.e(TAG, e.getMessage());
             return null;
         }
+    }
+
+    private void addMetadata(File file, Context context) {
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.Images.Media.TITLE, this.context.getString(R.string.picture_title));
+        values.put(MediaStore.Images.Media.DESCRIPTION, this.context.getString(R.string.picture_description));
+        values.put(MediaStore.Images.Media.DATE_TAKEN, System.currentTimeMillis());
+        values.put(MediaStore.Images.Media.BUCKET_ID, file.toString().toLowerCase().hashCode());
+        values.put(MediaStore.Images.Media.BUCKET_DISPLAY_NAME, file.toString().toLowerCase());
+        values.put(MediaStore.Images.Media.DATA, file.getAbsolutePath());
+
+        ContentResolver resolver = context.getContentResolver();
+        resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
     }
 
     private void copyFile(InputStream inputstream, FileOutputStream fileOutputStream) {
@@ -90,7 +106,7 @@ public class FileServerAsyncTask extends AsyncTask<Void, Void, String> {
             statusText.setText("File copied - " + result);
             Intent intent = new Intent();
             intent.setAction(android.content.Intent.ACTION_VIEW);
-            intent.setDataAndType(Uri.parse("content://" + result), "image/*");
+            intent.setDataAndType(Uri.parse("file://" + result), "image/*");
             context.startActivity(intent);
         }
     }
