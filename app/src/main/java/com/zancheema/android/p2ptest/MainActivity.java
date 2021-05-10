@@ -3,15 +3,19 @@ package com.zancheema.android.p2ptest;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.BroadcastReceiver;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.net.wifi.p2p.WifiP2pConfig;
 import android.net.wifi.p2p.WifiP2pDevice;
 import android.net.wifi.p2p.WifiP2pManager;
 import android.net.wifi.p2p.WifiP2pManager.Channel;
 import android.os.Bundle;
+import android.os.Environment;
+import android.os.Handler;
 import android.provider.MediaStore;
 import android.util.Log;
 import android.widget.Button;
@@ -23,7 +27,15 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 
 import static android.net.wifi.p2p.WifiP2pManager.BUSY;
 import static android.net.wifi.p2p.WifiP2pManager.ERROR;
@@ -36,6 +48,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int RC_ALL_PERMISSIONS = 0;
     private static final int RC_PICK_IMAGE = 101;
     private static final int RC_GET_IMAGE = 102;
+    private static final int RECEIVE_IMAGE = 3;
     private String[] permissions = {
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.READ_EXTERNAL_STORAGE,
@@ -47,12 +60,17 @@ public class MainActivity extends AppCompatActivity {
     BroadcastReceiver receiver;
     private IntentFilter intentFilter;
 
+
     String host;
 
     private Button buttonDiscover;
     private Button buttonReceive;
     private Button buttonSend;
     private TextView tvStatus;
+
+    private ServerThread serverThread;
+    private ClientThread clientThread;
+    private SendReceive sendReceive;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -94,7 +112,7 @@ public class MainActivity extends AppCompatActivity {
         Log.d(TAG, "onActivityResult: RESULT_OK: " + (RESULT_OK == resultCode));
         if (requestCode == RC_GET_IMAGE && resultCode == RESULT_OK) {
             Log.d(TAG, "onActivityResult: path: " + data.getDataString());
-            new FileClientAsyncTask(this, host, 8888, data.getDataString()).execute();
+            sendReceive.send(data.getDataString());
         }
     }
 
@@ -127,7 +145,9 @@ public class MainActivity extends AppCompatActivity {
             }
         }));
 
-        buttonReceive.setOnClickListener(v -> new FileServerAsyncTask(this, tvStatus).execute());
+        buttonReceive.setOnClickListener(v -> {
+            sendReceive.receive();
+        });
 
         buttonSend.setOnClickListener(v -> pickImage());
     }
@@ -196,8 +216,12 @@ public class MainActivity extends AppCompatActivity {
 
             if (info.groupFormed && info.isGroupOwner) {
                 tvStatus.setText("Host");
+                serverThread = new ServerThread();
+                serverThread.start();
             } else if (info.groupFormed) {
                 tvStatus.setText("Client");
+                clientThread = new ClientThread(info.groupOwnerAddress);
+                clientThread.start();
             }
         }
     };
@@ -246,4 +270,117 @@ public class MainActivity extends AppCompatActivity {
             });
         }
     };
+
+    private class ServerThread extends Thread {
+        @Override
+        public void run() {
+            try {
+                Log.d(TAG, "ServerThread: called");
+                ServerSocket serverSocket = new ServerSocket(8888);
+                Socket socket = serverSocket.accept();
+                Log.d(TAG, "ServerThread: accepted");
+
+                sendReceive = new SendReceive(socket);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    private class ClientThread extends Thread {
+        Socket socket;
+        String hostAdd;
+
+        public ClientThread(InetAddress hostAddress) {
+            hostAdd = hostAddress.getHostAddress();
+            socket = new Socket();
+        }
+
+        @Override
+        public void run() {
+            try {
+                socket.connect(new InetSocketAddress(hostAdd, 8888), 500);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            sendReceive = new SendReceive(socket);
+        }
+    }
+
+    private class SendReceive {
+        private Socket socket;
+        private InputStream inputStream;
+        private OutputStream outputStream;
+
+        public SendReceive(Socket socket) {
+            this.socket = socket;
+            try {
+                inputStream = socket.getInputStream();
+                outputStream = socket.getOutputStream();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
+        public void send(String path) {
+            new Thread(() -> {
+                try {
+                    byte[] buffer = new byte[1024];
+                    int bytes;
+                    ContentResolver cr = MainActivity.this.getContentResolver();
+                    InputStream contentInputStream = null;
+                    contentInputStream = cr.openInputStream(Uri.parse(path));
+                    while ((bytes = contentInputStream.read(buffer)) != -1) {
+                        outputStream.write(buffer, 0, bytes);
+                    }
+                    outputStream.close();
+                    contentInputStream.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }).start();
+        }
+
+        public void receive() {
+            new Thread(() -> {
+                Log.d(TAG, "receive: called");
+                    try {
+                            Log.d(TAG, "SendReceive: Receive");
+                            final File f = new File(Environment.getExternalStorageDirectory() + "/"
+                                    + "P2PTest" + "/wifip2pshared-" + System.currentTimeMillis()
+                                    + ".jpg");
+
+                            File dirs = new File(f.getParent());
+                            if (!dirs.exists())
+                                dirs.mkdirs();
+                            f.createNewFile();
+
+                            copyFile(inputStream, new FileOutputStream(f));
+                            Log.d(TAG, "copyFile: Successful");
+//                        }
+//                    Intent intent = new Intent();
+//                    intent.setAction(android.content.Intent.ACTION_VIEW);
+//                    intent.setDataAndType(Uri.parse("file://" + f.getAbsolutePath()), "image/*");
+//                    MainActivity.this.startActivity(intent);
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                        Log.d(TAG, "receive: " + e.getMessage());
+                    }
+            }).start();
+        }
+    }
+
+    private void copyFile(InputStream inputstream, FileOutputStream fileOutputStream) {
+        Log.d(TAG, "copyFile: called");
+        try {
+            int bytes;
+            byte[] buffer = new byte[1024];
+            while ((bytes = inputstream.read(buffer)) != -1) {
+                fileOutputStream.write(buffer, 0, bytes);
+            }
+        } catch (IOException e) {
+            Log.d(TAG, "copyFile: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
 }

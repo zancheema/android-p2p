@@ -9,11 +9,13 @@ import android.net.wifi.p2p.WifiP2pDevice;
 import android.net.wifi.p2p.WifiP2pInfo;
 import android.net.wifi.p2p.WifiP2pManager;
 import android.net.wifi.p2p.WifiP2pManager.Channel;
+import android.util.Log;
 import android.widget.Toast;
 
 import java.net.InetAddress;
 
 public class WiFiDirectBroadcastReceiver extends BroadcastReceiver {
+    private static final String TAG = "WiFiDirectBroadcastRece";
 
     private WifiP2pManager manager;
     private Channel channel;
@@ -47,6 +49,7 @@ public class WiFiDirectBroadcastReceiver extends BroadcastReceiver {
                 manager.requestPeers(channel, activity.myPeerListListener);
             }
         } else if (WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION.equals(action)) {
+            Log.d(TAG, "onReceive: WIFI_P2P_CONNECTION_CHANGED_ACTION");
             // Respond to new connection or disconnections
             if (manager == null) return;
 
